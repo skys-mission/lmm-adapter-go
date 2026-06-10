@@ -27,6 +27,18 @@ go.work.sum
 # env file
 .env
 
+# OS generated files
+.DS_Store
+
+# Logs
+*.log
+
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# AI
+CLAUDE.md
+AGENTS.md
+
+.claude
