@@ -3,33 +3,33 @@ package openaichat
 import "encoding/json"
 
 type chatCompletionRequest struct {
-	Model               string              `json:"model"`
-	Messages            []chatMessage       `json:"messages"`
-	Tools               []toolDef           `json:"tools,omitempty"`
-	ToolChoice          json.RawMessage     `json:"tool_choice,omitempty"`
-	Temperature         *float64            `json:"temperature,omitempty"`
-	TopP                *float64            `json:"top_p,omitempty"`
-	FrequencyPenalty    *float64            `json:"frequency_penalty,omitempty"`
-	PresencePenalty     *float64            `json:"presence_penalty,omitempty"`
-	MaxCompletionTokens *int64              `json:"max_completion_tokens,omitempty"`
-	MaxTokens           *int64              `json:"max_tokens,omitempty"`
-	N                   *int64              `json:"n,omitempty"`
-	Stream              bool                `json:"stream,omitempty"`
-	Stop                json.RawMessage     `json:"stop,omitempty"`
-	Seed                *int64              `json:"seed,omitempty"`
-	StreamOptions       json.RawMessage     `json:"stream_options,omitempty"`
-	User                string              `json:"user,omitempty"`
-	ParallelToolCalls   *bool               `json:"parallel_tool_calls,omitempty"`
-	ResponseFormat      json.RawMessage     `json:"response_format,omitempty"`
+	Model               string          `json:"model"`
+	Messages            []chatMessage   `json:"messages"`
+	Tools               []toolDef       `json:"tools,omitempty"`
+	ToolChoice          json.RawMessage `json:"tool_choice,omitempty"`
+	Temperature         *float64        `json:"temperature,omitempty"`
+	TopP                *float64        `json:"top_p,omitempty"`
+	FrequencyPenalty    *float64        `json:"frequency_penalty,omitempty"`
+	PresencePenalty     *float64        `json:"presence_penalty,omitempty"`
+	MaxCompletionTokens *int64          `json:"max_completion_tokens,omitempty"`
+	MaxTokens           *int64          `json:"max_tokens,omitempty"`
+	N                   *int64          `json:"n,omitempty"`
+	Stream              bool            `json:"stream,omitempty"`
+	Stop                json.RawMessage `json:"stop,omitempty"`
+	Seed                *int64          `json:"seed,omitempty"`
+	StreamOptions       json.RawMessage `json:"stream_options,omitempty"`
+	User                string          `json:"user,omitempty"`
+	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
+	ResponseFormat      json.RawMessage `json:"response_format,omitempty"`
 }
 
 type chatMessage struct {
-	Role         string          `json:"role"`
-	Content      json.RawMessage `json:"content,omitempty"`
-	Name         string          `json:"name,omitempty"`
-	ToolCalls    []toolCall      `json:"tool_calls,omitempty"`
-	ToolCallID   string          `json:"tool_call_id,omitempty"`
-	Refusal      string          `json:"refusal,omitempty"`
+	Role       string          `json:"role"`
+	Content    json.RawMessage `json:"content,omitempty"`
+	Name       string          `json:"name,omitempty"`
+	ToolCalls  []toolCall      `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Refusal    string          `json:"refusal,omitempty"`
 }
 
 type contentPart struct {
@@ -97,10 +97,10 @@ type choice struct {
 }
 
 type usage struct {
-	PromptTokens        int64                   `json:"prompt_tokens"`
-	CompletionTokens    int64                   `json:"completion_tokens"`
-	TotalTokens         int64                   `json:"total_tokens"`
-	CompletionDetails   *completionTokenDetails `json:"completion_tokens_details,omitempty"`
+	PromptTokens      int64                   `json:"prompt_tokens"`
+	CompletionTokens  int64                   `json:"completion_tokens"`
+	TotalTokens       int64                   `json:"total_tokens"`
+	CompletionDetails *completionTokenDetails `json:"completion_tokens_details,omitempty"`
 }
 
 type completionTokenDetails struct {

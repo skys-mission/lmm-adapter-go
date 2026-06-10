@@ -210,10 +210,10 @@ func (h *Handler) handleNormalResponse(w http.ResponseWriter, resp *http.Respons
 // skipping headers that the proxy manages itself (Content-Type, Content-Length, etc.).
 func copyResponseHeaders(src, dst http.Header) {
 	skip := map[string]bool{
-		"content-type":     true,
-		"content-length":   true,
+		"content-type":      true,
+		"content-length":    true,
 		"transfer-encoding": true,
-		"connection":       true,
+		"connection":        true,
 	}
 	for key, values := range src {
 		if skip[strings.ToLower(key)] {

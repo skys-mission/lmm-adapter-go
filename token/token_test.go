@@ -309,7 +309,7 @@ func TestIsCJK(t *testing.T) {
 		{'1', false},
 		{' ', false},
 		{'\n', false},
-		{'你', true},  // Chinese
+		{'你', true}, // Chinese
 		{'あ', true}, // Japanese Hiragana
 		{'カ', true}, // Japanese Katakana
 		{'한', true}, // Korean Hangul

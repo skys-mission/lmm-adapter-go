@@ -3,24 +3,24 @@ package openairesp
 import "encoding/json"
 
 type responseRequest struct {
-	Model               string          `json:"model"`
-	Input               json.RawMessage `json:"input"`
-	Instructions        string          `json:"instructions,omitempty"`
-	Tools               []toolDef       `json:"tools,omitempty"`
-	ToolChoice          json.RawMessage `json:"tool_choice,omitempty"`
-	Temperature         *float64        `json:"temperature,omitempty"`
-	TopP                *float64        `json:"top_p,omitempty"`
-	MaxOutputTokens     *int64          `json:"max_output_tokens,omitempty"`
-	Stream              bool            `json:"stream,omitempty"`
-	Store               *bool           `json:"store,omitempty"`
-	PreviousResponseID  string          `json:"previous_response_id,omitempty"`
-	Reasoning           json.RawMessage `json:"reasoning,omitempty"`
-	Metadata            json.RawMessage `json:"metadata,omitempty"`
-	Truncation          string          `json:"truncation,omitempty"`
-	ServiceTier         string          `json:"service_tier,omitempty"`
-	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
-	Background          *bool           `json:"background,omitempty"`
-	MaxToolCalls        *int64          `json:"max_tool_calls,omitempty"`
+	Model              string          `json:"model"`
+	Input              json.RawMessage `json:"input"`
+	Instructions       string          `json:"instructions,omitempty"`
+	Tools              []toolDef       `json:"tools,omitempty"`
+	ToolChoice         json.RawMessage `json:"tool_choice,omitempty"`
+	Temperature        *float64        `json:"temperature,omitempty"`
+	TopP               *float64        `json:"top_p,omitempty"`
+	MaxOutputTokens    *int64          `json:"max_output_tokens,omitempty"`
+	Stream             bool            `json:"stream,omitempty"`
+	Store              *bool           `json:"store,omitempty"`
+	PreviousResponseID string          `json:"previous_response_id,omitempty"`
+	Reasoning          json.RawMessage `json:"reasoning,omitempty"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	Truncation         string          `json:"truncation,omitempty"`
+	ServiceTier        string          `json:"service_tier,omitempty"`
+	ParallelToolCalls  *bool           `json:"parallel_tool_calls,omitempty"`
+	Background         *bool           `json:"background,omitempty"`
+	MaxToolCalls       *int64          `json:"max_tool_calls,omitempty"`
 }
 
 type inputItem struct {
@@ -54,17 +54,17 @@ type toolDef struct {
 }
 
 type responseResponse struct {
-	ID                 string          `json:"id"`
-	Object             string          `json:"object"`
-	CreatedAt          int64           `json:"created_at"`
-	Model              string          `json:"model"`
-	Output             []outputItem    `json:"output"`
-	Status             string          `json:"status,omitempty"`
-	Usage              *respUsage      `json:"usage,omitempty"`
-	Error              *respError      `json:"error,omitempty"`
-	IncompleteDetails  json.RawMessage `json:"incomplete_details,omitempty"`
-	Metadata           json.RawMessage `json:"metadata,omitempty"`
-	OutputText         string          `json:"output_text,omitempty"`
+	ID                string          `json:"id"`
+	Object            string          `json:"object"`
+	CreatedAt         int64           `json:"created_at"`
+	Model             string          `json:"model"`
+	Output            []outputItem    `json:"output"`
+	Status            string          `json:"status,omitempty"`
+	Usage             *respUsage      `json:"usage,omitempty"`
+	Error             *respError      `json:"error,omitempty"`
+	IncompleteDetails json.RawMessage `json:"incomplete_details,omitempty"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	OutputText        string          `json:"output_text,omitempty"`
 }
 
 type outputItem struct {
@@ -94,10 +94,10 @@ type annotation struct {
 }
 
 type respUsage struct {
-	InputTokens          int64                 `json:"input_tokens"`
-	OutputTokens         int64                 `json:"output_tokens"`
-	TotalTokens          int64                 `json:"total_tokens"`
-	OutputTokensDetails  *outputTokensDetails  `json:"output_tokens_details,omitempty"`
+	InputTokens         int64                `json:"input_tokens"`
+	OutputTokens        int64                `json:"output_tokens"`
+	TotalTokens         int64                `json:"total_tokens"`
+	OutputTokensDetails *outputTokensDetails `json:"output_tokens_details,omitempty"`
 }
 
 type outputTokensDetails struct {
@@ -111,16 +111,16 @@ type respError struct {
 }
 
 type responseStreamEvent struct {
-	Type           string          `json:"type"`
-	SequenceNumber int64           `json:"sequence_number,omitempty"`
+	Type           string            `json:"type"`
+	SequenceNumber int64             `json:"sequence_number,omitempty"`
 	Response       *responseResponse `json:"response,omitempty"`
-	OutputIndex    int64           `json:"output_index,omitempty"`
-	Item           *outputItem     `json:"item,omitempty"`
-	ItemID         string          `json:"item_id,omitempty"`
-	Delta          string          `json:"delta,omitempty"`
-	Text           string          `json:"text,omitempty"`
-	Arguments      string          `json:"arguments,omitempty"`
-	ContentIndex   int64           `json:"content_index,omitempty"`
-	Part           *outputContent  `json:"part,omitempty"`
-	Error          *respError      `json:"error,omitempty"`
+	OutputIndex    int64             `json:"output_index,omitempty"`
+	Item           *outputItem       `json:"item,omitempty"`
+	ItemID         string            `json:"item_id,omitempty"`
+	Delta          string            `json:"delta,omitempty"`
+	Text           string            `json:"text,omitempty"`
+	Arguments      string            `json:"arguments,omitempty"`
+	ContentIndex   int64             `json:"content_index,omitempty"`
+	Part           *outputContent    `json:"part,omitempty"`
+	Error          *respError        `json:"error,omitempty"`
 }

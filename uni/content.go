@@ -140,9 +140,9 @@ func UnmarshalContentPart(data []byte) (ContentPart, error) {
 }
 
 type toolResultPartRaw struct {
-	ToolCallID string          `json:"tool_call_id"`
-	Content    []ContentPart   `json:"content,omitempty"`
-	IsError    bool            `json:"is_error,omitempty"`
+	ToolCallID string        `json:"tool_call_id"`
+	Content    []ContentPart `json:"content,omitempty"`
+	IsError    bool          `json:"is_error,omitempty"`
 }
 
 func (r *toolResultPartRaw) UnmarshalJSON(data []byte) error {

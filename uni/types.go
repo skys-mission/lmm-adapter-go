@@ -15,9 +15,9 @@ const (
 )
 
 type Message struct {
-	Role    Role         `json:"role"`
+	Role    Role          `json:"role"`
 	Content []ContentPart `json:"content"`
-	Ext     ExtData      `json:"ext,omitempty"`
+	Ext     ExtData       `json:"ext,omitempty"`
 }
 
 type ContentPartType string
@@ -229,9 +229,9 @@ type ToolCallDelta struct {
 }
 
 type StreamError struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
-	Code    string `json:"code,omitempty"`
+	Type    string  `json:"type"`
+	Message string  `json:"message"`
+	Code    string  `json:"code,omitempty"`
 	Ext     ExtData `json:"ext,omitempty"`
 }
 

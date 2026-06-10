@@ -18,16 +18,16 @@ const (
 )
 
 type LogEntry struct {
-	Timestamp    time.Time              `json:"timestamp"`
-	Level        LogLevel               `json:"level"`
-	Message      string                 `json:"message"`
-	Source       adapter.Protocol       `json:"source,omitempty"`
-	Target       adapter.Protocol       `json:"target,omitempty"`
-	Duration     time.Duration          `json:"duration,omitempty"`
-	LostFields   int                    `json:"lost_fields,omitempty"`
-	Warnings     int                    `json:"warnings,omitempty"`
-	Error        string                 `json:"error,omitempty"`
-	Metadata     map[string]any         `json:"metadata,omitempty"`
+	Timestamp  time.Time        `json:"timestamp"`
+	Level      LogLevel         `json:"level"`
+	Message    string           `json:"message"`
+	Source     adapter.Protocol `json:"source,omitempty"`
+	Target     adapter.Protocol `json:"target,omitempty"`
+	Duration   time.Duration    `json:"duration,omitempty"`
+	LostFields int              `json:"lost_fields,omitempty"`
+	Warnings   int              `json:"warnings,omitempty"`
+	Error      string           `json:"error,omitempty"`
+	Metadata   map[string]any   `json:"metadata,omitempty"`
 }
 
 type Logger interface {

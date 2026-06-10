@@ -199,9 +199,9 @@ func TestIsStreamingRequest_MultipleStreamValues(t *testing.T) {
 		{"stream true", `{"stream": true}`, true},
 		{"stream false", `{"stream": false}`, false},
 		{"no stream field", `{"model": "gpt-4o"}`, false},
-		{"stream string", `{"stream": "true"}`, false}, // string, not bool
+		{"stream string", `{"stream": "true"}`, false},             // string, not bool
 		{"nested stream", `{"messages":[{"stream":true}]}`, false}, // not top-level
-		{"stream int 1", `{"stream": 1}`, false}, // not bool
+		{"stream int 1", `{"stream": 1}`, false},                   // not bool
 	}
 
 	for _, tt := range tests {

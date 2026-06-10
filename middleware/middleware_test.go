@@ -173,12 +173,12 @@ func TestLoggerAdapter_OnError(t *testing.T) {
 
 func TestLogEntry_JSONMarshal(t *testing.T) {
 	entry := LogEntry{
-		Timestamp: time.Now(),
-		Level:     LogLevelInfo,
-		Message:   "test",
-		Source:    adapter.ProtocolOpenAIChat,
-		Target:    adapter.ProtocolClaudeMessages,
-		Duration:  time.Millisecond * 42,
+		Timestamp:  time.Now(),
+		Level:      LogLevelInfo,
+		Message:    "test",
+		Source:     adapter.ProtocolOpenAIChat,
+		Target:     adapter.ProtocolClaudeMessages,
+		Duration:   time.Millisecond * 42,
 		LostFields: 2,
 		Warnings:   1,
 	}

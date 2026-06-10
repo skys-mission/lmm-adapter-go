@@ -92,7 +92,7 @@
 //
 // # Architecture
 //
-// Protocol A ←→ Adapter A ←→ Unified IR ←→ Adapter B ←→ Protocol B
+// # Protocol A ←→ Adapter A ←→ Unified IR ←→ Adapter B ←→ Protocol B
 //
 // Each adapter implements bidirectional conversion between its protocol format
 // and the unified intermediate representation (IR). Cross-protocol conversion

@@ -359,12 +359,12 @@ func TestStreamEventDecode(t *testing.T) {
 	a := New()
 
 	tests := []struct {
-		name     string
-		input    string
-		checkFn  func(*uni.StreamEvent) error
+		name    string
+		input   string
+		checkFn func(*uni.StreamEvent) error
 	}{
 		{
-			name: "message_start",
+			name:  "message_start",
 			input: `{"type":"message_start","message":{"id":"msg_001","type":"message","role":"assistant","model":"claude-3-opus","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}`,
 			checkFn: func(e *uni.StreamEvent) error {
 				if e.Type != uni.StreamEventStart {
