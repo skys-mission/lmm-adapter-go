@@ -210,7 +210,7 @@ func decodeContent(raw json.RawMessage) ([]uni.ContentPart, *adapter.Report, err
 
 	result := make([]uni.ContentPart, 0, len(parts))
 	for i, p := range parts {
-		cp, err := decodeContentPart(p)
+		cp, err := decodeContentPart(p, report)
 		if err != nil {
 			return nil, report, fmt.Errorf("content part[%d]: %w", i, err)
 		}
@@ -219,7 +219,7 @@ func decodeContent(raw json.RawMessage) ([]uni.ContentPart, *adapter.Report, err
 	return result, report, nil
 }
 
-func decodeContentPart(p contentPart) (uni.ContentPart, error) {
+func decodeContentPart(p contentPart, report *adapter.Report) (uni.ContentPart, error) {
 	switch p.Type {
 	case "text":
 		return uni.TextPart{Text: p.Text}, nil
@@ -239,6 +239,7 @@ func decodeContentPart(p contentPart) (uni.ContentPart, error) {
 		}
 		return uni.FilePart{Data: p.File.FileData, Name: p.File.FileName}, nil
 	default:
+		report.AddLostField("openai_chat", "content_part.type", fmt.Sprintf("unknown content part type %q, defaulting to text", p.Type))
 		return uni.TextPart{Text: p.Text}, nil
 	}
 }

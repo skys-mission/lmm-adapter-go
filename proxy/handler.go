@@ -117,7 +117,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isStreaming {
-		h.handleStreamingResponse(w, resp)
+		h.handleStreamingResponse(w, r, resp)
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *Handler) handleErrorResponse(w http.ResponseWriter, resp *http.Response
 	w.Write(convertedErr)
 }
 
-func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Response) {
+func (h *Handler) handleStreamingResponse(w http.ResponseWriter, r *http.Request, resp *http.Response) {
 	srcAdapter, err := h.converter.Get(h.dstProtocol)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Source adapter not found: %v", err), http.StatusInternalServerError)
@@ -172,7 +172,17 @@ func (h *Handler) handleStreamingResponse(w http.ResponseWriter, resp *http.Resp
 	}
 
 	pipeline := stream.NewPipeline(srcAdapter, dstAdapter)
-	pipeline.Pipe(resp.Request.Context(), resp.Body, w)
+	if err := pipeline.Pipe(r.Context(), resp.Body, w); err != nil {
+		writeStreamError(w, fmt.Sprintf("stream conversion failed: %v", err))
+	}
+}
+
+func writeStreamError(w http.ResponseWriter, message string) {
+	event := &stream.SSEEvent{
+		Data: fmt.Sprintf(`{"type":"error","error":{"type":"stream_error","message":%q}}`, message),
+	}
+	// Best-effort write; headers may already be flushed.
+	_, _ = w.Write([]byte(event.String()))
 }
 
 func (h *Handler) handleNormalResponse(w http.ResponseWriter, resp *http.Response) {

@@ -597,3 +597,323 @@ func (e *checkError) Error() string {
 func errCheck(field, expected, got string) error {
 	return &checkError{field: field, expected: expected, got: got}
 }
+
+func TestDecodeStreamEvent_Failed(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{"type":"response.failed","response":{"id":"resp_fail","status":"failed","error":{"type":"server_error","message":"boom"}}}`)
+
+	event, _, err := a.DecodeStreamEvent(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamEvent failed: %v", err)
+	}
+	if event.Type != uni.StreamEventError {
+		t.Fatalf("expected error event, got %s", event.Type)
+	}
+	if event.Error == nil {
+		t.Fatal("expected error payload")
+	}
+	if event.Error.Type != "server_error" || event.Error.Message != "boom" {
+		t.Fatalf("unexpected error payload: %+v", event.Error)
+	}
+}
+
+func TestDecodeStreamEvent_OutputItemAdded(t *testing.T) {
+	a := New()
+	t.Run("message", func(t *testing.T) {
+		data := json.RawMessage(`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant","status":"in_progress"}}`)
+		event, _, err := a.DecodeStreamEvent(data)
+		if err != nil {
+			t.Fatalf("DecodeStreamEvent failed: %v", err)
+		}
+		if event.Type != uni.StreamEventContentStart {
+			t.Fatalf("expected content_start, got %s", event.Type)
+		}
+		if len(event.Choices) != 1 || event.Choices[0].Delta.Role != uni.RoleAssistant {
+			t.Fatalf("unexpected choices: %+v", event.Choices)
+		}
+	})
+	t.Run("function_call", func(t *testing.T) {
+		data := json.RawMessage(`{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","status":"in_progress","call_id":"call_1","name":"search"}}`)
+		event, _, err := a.DecodeStreamEvent(data)
+		if err != nil {
+			t.Fatalf("DecodeStreamEvent failed: %v", err)
+		}
+		if len(event.Choices) != 1 {
+			t.Fatalf("expected 1 choice, got %d", len(event.Choices))
+		}
+		if len(event.Choices[0].Delta.ToolCalls) != 1 {
+			t.Fatalf("expected 1 tool call delta")
+		}
+		tc := event.Choices[0].Delta.ToolCalls[0]
+		if tc.ToolCallID != "call_1" || tc.ToolName != "search" || tc.Index != 1 {
+			t.Fatalf("unexpected tool call delta: %+v", tc)
+		}
+	})
+}
+
+func TestDecodeStreamEvent_OutputItemDone(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","status":"completed"}}`)
+	event, _, err := a.DecodeStreamEvent(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamEvent failed: %v", err)
+	}
+	if event.Type != uni.StreamEventDelta {
+		t.Fatalf("expected delta, got %s", event.Type)
+	}
+}
+
+func TestDecodeStreamEvent_ContentPartAdded(t *testing.T) {
+	a := New()
+	t.Run("output_text", func(t *testing.T) {
+		data := json.RawMessage(`{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}`)
+		event, _, err := a.DecodeStreamEvent(data)
+		if err != nil {
+			t.Fatalf("DecodeStreamEvent failed: %v", err)
+		}
+		if event.Type != uni.StreamEventContentStart {
+			t.Fatalf("expected content_start, got %s", event.Type)
+		}
+	})
+	t.Run("refusal", func(t *testing.T) {
+		data := json.RawMessage(`{"type":"response.content_part.added","output_index":0,"content_index":1,"part":{"type":"refusal","refusal":""}}`)
+		event, _, err := a.DecodeStreamEvent(data)
+		if err != nil {
+			t.Fatalf("DecodeStreamEvent failed: %v", err)
+		}
+		if event.Type != uni.StreamEventContentStart {
+			t.Fatalf("expected content_start, got %s", event.Type)
+		}
+	})
+}
+
+func TestDecodeStreamEvent_ContentPartDone(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{"type":"response.content_part.done","output_index":0,"content_index":0,"part":{"type":"output_text","text":"done"}}`)
+	event, _, err := a.DecodeStreamEvent(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamEvent failed: %v", err)
+	}
+	if event.Type != uni.StreamEventContentStop {
+		t.Fatalf("expected content_stop, got %s", event.Type)
+	}
+}
+
+func TestEncodeStreamEvent_AllTypes(t *testing.T) {
+	a := New()
+
+	t.Run("start", func(t *testing.T) {
+		event := &uni.StreamEvent{
+			Type:    uni.StreamEventStart,
+			ID:      "resp_1",
+			Model:   "gpt-4o",
+			Created: 1700000000,
+		}
+		data, _, err := a.EncodeStreamEvent(event)
+		if err != nil {
+			t.Fatalf("EncodeStreamEvent failed: %v", err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw["type"] != "response.created" {
+			t.Fatalf("expected response.created, got %v", raw["type"])
+		}
+	})
+
+	t.Run("content_start", func(t *testing.T) {
+		event := &uni.StreamEvent{
+			Type: uni.StreamEventContentStart,
+			Choices: []uni.StreamChoice{
+				{
+					Index: 0,
+					Delta: uni.StreamDelta{Content: []uni.ContentPart{uni.TextPart{Text: "hi"}}},
+				},
+			},
+		}
+		data, _, err := a.EncodeStreamEvent(event)
+		if err != nil {
+			t.Fatalf("EncodeStreamEvent failed: %v", err)
+		}
+		var raw responseStreamEvent
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw.Type != "response.output_item.added" {
+			t.Fatalf("expected response.output_item.added, got %s", raw.Type)
+		}
+	})
+
+	t.Run("content_start_function_call", func(t *testing.T) {
+		event := &uni.StreamEvent{
+			Type: uni.StreamEventContentStart,
+			Choices: []uni.StreamChoice{
+				{
+					Index: 1,
+					Delta: uni.StreamDelta{
+						ToolCalls: []uni.ToolCallDelta{
+							{ToolCallID: "call_1", ToolName: "search"},
+						},
+					},
+				},
+			},
+		}
+		data, _, err := a.EncodeStreamEvent(event)
+		if err != nil {
+			t.Fatalf("EncodeStreamEvent failed: %v", err)
+		}
+		var raw responseStreamEvent
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw.Type != "response.output_item.added" || raw.Item == nil || raw.Item.Type != "function_call" {
+			t.Fatalf("unexpected event: %+v", raw)
+		}
+	})
+
+	t.Run("content_stop", func(t *testing.T) {
+		event := &uni.StreamEvent{Type: uni.StreamEventContentStop}
+		data, _, err := a.EncodeStreamEvent(event)
+		if err != nil {
+			t.Fatalf("EncodeStreamEvent failed: %v", err)
+		}
+		var raw responseStreamEvent
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw.Type != "response.content_part.done" {
+			t.Fatalf("expected response.content_part.done, got %s", raw.Type)
+		}
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		reason := uni.StopReasonEndTurn
+		event := &uni.StreamEvent{
+			Type:       uni.StreamEventStop,
+			ID:         "resp_1",
+			Model:      "gpt-4o",
+			StopReason: &reason,
+			Usage:      &uni.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},
+		}
+		data, _, err := a.EncodeStreamEvent(event)
+		if err != nil {
+			t.Fatalf("EncodeStreamEvent failed: %v", err)
+		}
+		var raw responseStreamEvent
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw.Type != "response.completed" {
+			t.Fatalf("expected response.completed, got %s", raw.Type)
+		}
+		if raw.Response == nil || raw.Response.Usage.TotalTokens != 15 {
+			t.Fatalf("unexpected response payload: %+v", raw.Response)
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		event := &uni.StreamEvent{
+			Type:  uni.StreamEventError,
+			Error: &uni.StreamError{Type: "api_error", Message: "oops", Code: "OOPS"},
+		}
+		data, _, err := a.EncodeStreamEvent(event)
+		if err != nil {
+			t.Fatalf("EncodeStreamEvent failed: %v", err)
+		}
+		var raw responseStreamEvent
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw.Type != "error" || raw.Error == nil || raw.Error.Message != "oops" {
+			t.Fatalf("unexpected error event: %+v", raw)
+		}
+	})
+
+	t.Run("delta_refusal", func(t *testing.T) {
+		event := &uni.StreamEvent{
+			Type: uni.StreamEventDelta,
+			Choices: []uni.StreamChoice{
+				{
+					Index: 0,
+					Delta: uni.StreamDelta{
+						Content: []uni.ContentPart{uni.RefusalPart{Refusal: "no"}},
+					},
+				},
+			},
+		}
+		data, _, err := a.EncodeStreamEvent(event)
+		if err != nil {
+			t.Fatalf("EncodeStreamEvent failed: %v", err)
+		}
+		var raw responseStreamEvent
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if raw.Type != "response.refusal.delta" || raw.Delta != "no" {
+			t.Fatalf("unexpected delta event: %+v", raw)
+		}
+	})
+}
+
+func TestDecodeRequest_ExtRestoration(t *testing.T) {
+	a := New()
+	original := json.RawMessage(`{
+		"model": "gpt-4o",
+		"input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+		"previous_response_id": "prev_1",
+		"store": true,
+		"truncation": "auto"
+	}`)
+
+	params, _, err := a.DecodeRequest(original)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+
+	encoded, _, err := a.EncodeRequest(params)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+
+	var req responseRequest
+	if err := json.Unmarshal(encoded, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if req.PreviousResponseID != "prev_1" {
+		t.Fatalf("expected previous_response_id prev_1, got %s", req.PreviousResponseID)
+	}
+	if req.Store == nil || !*req.Store {
+		t.Fatal("expected store true")
+	}
+	if req.Truncation != "auto" {
+		t.Fatalf("expected truncation auto, got %s", req.Truncation)
+	}
+}
+
+func TestDecodeToolChoice_UnknownString(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{
+		"model": "gpt-4o",
+		"input": "hi",
+		"tool_choice": "weird"
+	}`)
+
+	params, report, err := a.DecodeRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	if params.ToolChoice == nil || params.ToolChoice.Type != uni.ToolChoiceAuto {
+		t.Fatalf("expected auto tool_choice type, got %v", params.ToolChoice)
+	}
+	found := false
+	for _, lf := range report.LostFields {
+		if lf.Field == "tool_choice" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected tool_choice in lost fields")
+	}
+}

@@ -155,27 +155,43 @@ func (a *Accumulator) accumulateToolCall(tc uni.ToolCallDelta) {
 }
 
 func (a *Accumulator) finalizeToolCalls() {
-	// Filter out ToolUsePart shells whose arguments were accumulated via deltas
+	// Build lookup of accumulated tool calls by ID for precise matching.
+	accByID := make(map[string]*toolCallAccumulator)
+	unmatched := make(map[int]*toolCallAccumulator)
+	for idx, tc := range a.currentToolCalls {
+		unmatched[idx] = tc
+		if tc.id != "" {
+			accByID[tc.id] = tc
+		}
+	}
+
 	var textParts []uni.ContentPart
 	for _, part := range a.currentAssistantParts {
-		if tp, ok := part.(uni.ToolUsePart); ok {
-			handled := false
-			for _, tc := range a.currentToolCalls {
-				if tc.id == tp.ToolCallID || tc.name == tp.ToolName {
-					handled = true
-					break
-				}
-			}
-			if !handled && len(tp.Arguments) > 0 {
-				textParts = append(textParts, tp)
-			}
-		} else {
+		tp, ok := part.(uni.ToolUsePart)
+		if !ok {
 			textParts = append(textParts, part)
+			continue
+		}
+
+		if tc, found := accByID[tp.ToolCallID]; found {
+			// Prefer accumulated arguments; keep shell name if accumulator lacks one.
+			if tc.name == "" {
+				tc.name = tp.ToolName
+			}
+			if tc.id == "" {
+				tc.id = tp.ToolCallID
+			}
+			continue
+		}
+
+		// No matching accumulator: preserve shell only if it already has arguments.
+		if len(tp.Arguments) > 0 {
+			textParts = append(textParts, tp)
 		}
 	}
 
 	var toolParts []uni.ContentPart
-	for _, tc := range a.currentToolCalls {
+	for _, tc := range unmatched {
 		toolParts = append(toolParts, uni.ToolUsePart{
 			ToolCallID: tc.id,
 			ToolName:   tc.name,

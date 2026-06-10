@@ -169,6 +169,17 @@ func encodeStreamEvent(event *uni.StreamEvent) (json.RawMessage, *adapter.Report
 
 		choices = append(choices, cc)
 	}
+
+	// For stop events, map top-level StopReason to finish_reason if not already set.
+	if event.Type == uni.StreamEventStop && event.StopReason != nil {
+		if len(choices) == 0 {
+			choices = append(choices, chunkChoice{Index: 0})
+		}
+		if choices[0].FinishReason == "" {
+			choices[0].FinishReason = reverseMapFinishReason(*event.StopReason)
+		}
+	}
+
 	chunk.Choices = choices
 
 	data, err := json.Marshal(chunk)

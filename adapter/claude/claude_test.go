@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/skys-mission/lmm-adapter-go/adapter"
 	"github.com/skys-mission/lmm-adapter-go/uni"
 )
 
@@ -668,5 +669,296 @@ func TestReportLostFieldsDecodeRequest(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected system.cache_control in lost fields")
+	}
+}
+
+func TestEncodeClaudeToolResultContent(t *testing.T) {
+	a := New()
+	report := adapter.NewReport()
+
+	// Text only content
+	p := uni.ToolResultPart{
+		ToolCallID: "call_1",
+		Content:    []uni.ContentPart{uni.TextPart{Text: "result"}},
+	}
+	data, _, err := a.EncodeRequest(&uni.RequestParams{
+		Model:    "claude-3-opus",
+		Messages: []uni.Message{uni.UserMessage(p)},
+	})
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+	var req claudeMessageRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Verify the encoded message structure.
+	if len(req.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(req.Messages))
+	}
+	if req.Messages[0].Role != "user" {
+		t.Fatalf("expected role user, got %s", req.Messages[0].Role)
+	}
+
+	var blocks []contentBlock
+	if err := json.Unmarshal(req.Messages[0].Content, &blocks); err != nil {
+		t.Fatalf("unmarshal content blocks: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(blocks))
+	}
+	block := blocks[0]
+	if block.Type != "tool_result" {
+		t.Fatalf("expected tool_result block, got %s", block.Type)
+	}
+	if block.ToolUseID != "call_1" {
+		t.Fatalf("expected tool_use_id call_1, got %s", block.ToolUseID)
+	}
+	if block.IsError {
+		t.Fatal("expected is_error to be false")
+	}
+
+	// The content should be a JSON string "result".
+	var resultText string
+	if err := json.Unmarshal(block.Content, &resultText); err != nil {
+		t.Fatalf("unmarshal content text: %v", err)
+	}
+	if resultText != "result" {
+		t.Fatalf("expected content text 'result', got %q", resultText)
+	}
+
+	// Report should not have any errors.
+	if len(report.Warnings) > 0 || len(report.LostFields) > 0 {
+		t.Fatalf("expected empty report, got warnings: %d, lost fields: %d", len(report.Warnings), len(report.LostFields))
+	}
+}
+
+func TestDecodeToolResultContent_MergesTextAndContent(t *testing.T) {
+	data := json.RawMessage(`{
+		"model": "claude-3-opus",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "call_1", "text": "from text", "content": "from content"}
+			]}
+		]
+	}`)
+
+	a := New()
+	params, _, err := a.DecodeRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+
+	if len(params.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(params.Messages))
+	}
+	trp, ok := params.Messages[0].Content[0].(uni.ToolResultPart)
+	if !ok {
+		t.Fatal("expected ToolResultPart")
+	}
+	if trp.ToolCallID != "call_1" {
+		t.Fatalf("expected call_1, got %s", trp.ToolCallID)
+	}
+	if len(trp.Content) != 2 {
+		t.Fatalf("expected both text and content, got %d parts", len(trp.Content))
+	}
+}
+
+func TestDecodeToolResultContent_WithArrayContent(t *testing.T) {
+	data := json.RawMessage(`{
+		"model": "claude-3-opus",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "call_1", "content": [{"type": "text", "text": "nested"}]}
+			]}
+		]
+	}`)
+
+	a := New()
+	params, _, err := a.DecodeRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+
+	trp := params.Messages[0].Content[0].(uni.ToolResultPart)
+	if len(trp.Content) != 1 {
+		t.Fatalf("expected 1 nested part, got %d", len(trp.Content))
+	}
+	tp, ok := trp.Content[0].(uni.TextPart)
+	if !ok || tp.Text != "nested" {
+		t.Fatalf("expected nested text part, got %+v", trp.Content[0])
+	}
+}
+
+func TestConvertClaudeToolChoiceToUni_Unknown(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{
+		"model": "claude-3-opus",
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": "hi"}],
+		"tool_choice": {"type": "unknown"}
+	}`)
+
+	params, report, err := a.DecodeRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	if params.ToolChoice == nil || params.ToolChoice.Type != uni.ToolChoiceAuto {
+		t.Fatalf("expected default auto, got %v", params.ToolChoice)
+	}
+	found := false
+	for _, lf := range report.LostFields {
+		if lf.Field == "tool_choice.type" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected tool_choice.type in lost fields")
+	}
+}
+
+func TestStreamEventEncode_Start(t *testing.T) {
+	a := New()
+	event := &uni.StreamEvent{
+		Type:    uni.StreamEventStart,
+		ID:      "msg_001",
+		Model:   "claude-3-opus",
+		Created: 1234567890,
+	}
+
+	data, _, err := a.EncodeStreamEvent(event)
+	if err != nil {
+		t.Fatalf("EncodeStreamEvent failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if raw["type"] != "message_start" {
+		t.Fatalf("expected message_start, got %v", raw["type"])
+	}
+}
+
+func TestStreamEventEncode_ContentStart(t *testing.T) {
+	a := New()
+	event := &uni.StreamEvent{
+		Type: uni.StreamEventContentStart,
+		Choices: []uni.StreamChoice{
+			{
+				Index: 0,
+				Delta: uni.StreamDelta{
+					Content: []uni.ContentPart{uni.TextPart{Text: "Hello"}},
+				},
+			},
+		},
+	}
+
+	data, _, err := a.EncodeStreamEvent(event)
+	if err != nil {
+		t.Fatalf("EncodeStreamEvent failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if raw["type"] != "content_block_start" {
+		t.Fatalf("expected content_block_start, got %v", raw["type"])
+	}
+}
+
+func TestStreamEventEncode_Delta(t *testing.T) {
+	a := New()
+	event := &uni.StreamEvent{
+		Type: uni.StreamEventDelta,
+		Choices: []uni.StreamChoice{
+			{
+				Index: 0,
+				Delta: uni.StreamDelta{
+					Content: []uni.ContentPart{uni.TextPart{Text: "delta text"}},
+				},
+			},
+		},
+	}
+
+	data, _, err := a.EncodeStreamEvent(event)
+	if err != nil {
+		t.Fatalf("EncodeStreamEvent failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if raw["type"] != "content_block_delta" {
+		t.Fatalf("expected content_block_delta, got %v", raw["type"])
+	}
+}
+
+func TestStreamEventEncode_ContentStop(t *testing.T) {
+	a := New()
+	event := &uni.StreamEvent{
+		Type: uni.StreamEventContentStop,
+		Choices: []uni.StreamChoice{
+			{Index: 0},
+		},
+	}
+
+	data, _, err := a.EncodeStreamEvent(event)
+	if err != nil {
+		t.Fatalf("EncodeStreamEvent failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if raw["type"] != "content_block_stop" {
+		t.Fatalf("expected content_block_stop, got %v", raw["type"])
+	}
+}
+
+func TestStreamEventEncode_Error(t *testing.T) {
+	a := New()
+	event := &uni.StreamEvent{
+		Type: uni.StreamEventError,
+		Error: &uni.StreamError{
+			Type:    "api_error",
+			Message: "something went wrong",
+		},
+	}
+
+	data, _, err := a.EncodeStreamEvent(event)
+	if err != nil {
+		t.Fatalf("EncodeStreamEvent failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if raw["type"] != "error" {
+		t.Fatalf("expected error, got %v", raw["type"])
+	}
+}
+
+func TestDecodeContentBlockStop(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{"type":"content_block_stop","index":2}`)
+
+	event, _, err := a.DecodeStreamEvent(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamEvent failed: %v", err)
+	}
+	if event.Type != uni.StreamEventContentStop {
+		t.Fatalf("expected content_stop, got %s", event.Type)
+	}
+	if len(event.Choices) != 1 || event.Choices[0].Index != 2 {
+		t.Fatalf("expected index 2, got %+v", event.Choices)
 	}
 }

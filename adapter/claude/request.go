@@ -59,7 +59,7 @@ func decodeRequest(data json.RawMessage) (*uni.RequestParams, *adapter.Report, e
 	}
 
 	if req.ToolChoice != nil {
-		tc := convertClaudeToolChoiceToUni(req.ToolChoice)
+		tc := convertClaudeToolChoiceToUni(req.ToolChoice, report)
 		params.ToolChoice = &tc
 	}
 
@@ -67,12 +67,12 @@ func decodeRequest(data json.RawMessage) (*uni.RequestParams, *adapter.Report, e
 		if params.Ext == nil {
 			params.Ext = make(uni.ExtData)
 		}
-		ext := map[string]json.RawMessage{}
-		ext["metadata"] = req.Metadata
+		ext := map[string]json.RawMessage{"metadata": req.Metadata}
 		raw, err := json.Marshal(ext)
-		if err == nil {
-			params.Ext["claude"] = raw
+		if err != nil {
+			return nil, report, fmt.Errorf("marshal claude metadata ext: %w", err)
 		}
+		params.Ext["claude"] = raw
 	}
 
 	return params, report, nil
@@ -148,6 +148,44 @@ func decodeSystemField(raw json.RawMessage) ([]systemBlock, error) {
 	return blocks, nil
 }
 
+func decodeToolResultContent(block contentBlock) ([]uni.ContentPart, error) {
+	var content []uni.ContentPart
+	if block.Text != "" {
+		content = append(content, uni.TextPart{Text: block.Text})
+	}
+	if block.Content == nil {
+		return content, nil
+	}
+
+	var subContent json.RawMessage
+	if err := json.Unmarshal(block.Content, &subContent); err != nil {
+		return nil, fmt.Errorf("unmarshal tool_result content wrapper: %w", err)
+	}
+
+	var textContent string
+	if err := json.Unmarshal(subContent, &textContent); err == nil {
+		if textContent != "" {
+			content = append(content, uni.TextPart{Text: textContent})
+		}
+		return content, nil
+	}
+
+	var parts []json.RawMessage
+	if err := json.Unmarshal(subContent, &parts); err != nil {
+		return nil, fmt.Errorf("unmarshal tool_result content: %w", err)
+	}
+	for _, p := range parts {
+		cp, err := uni.UnmarshalContentPart(p)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal tool_result nested part: %w", err)
+		}
+		if cp != nil {
+			content = append(content, cp)
+		}
+	}
+	return content, nil
+}
+
 func convertClaudeBlockToUni(block contentBlock, report *adapter.Report) (uni.ContentPart, error) {
 	switch block.Type {
 	case "text":
@@ -167,30 +205,9 @@ func convertClaudeBlockToUni(block contentBlock, report *adapter.Report) (uni.Co
 	case "tool_use":
 		return uni.ToolUsePart{ToolCallID: block.ID, ToolName: block.Name, Arguments: block.Input}, nil
 	case "tool_result":
-		var content []uni.ContentPart
-		if block.Text != "" {
-			content = append(content, uni.TextPart{Text: block.Text})
-		}
-		if block.Content != nil {
-			var subContent json.RawMessage
-			if err := json.Unmarshal(block.Content, &subContent); err == nil {
-				var textContent string
-				if err := json.Unmarshal(subContent, &textContent); err == nil {
-					if textContent != "" && block.Text == "" {
-						content = append(content, uni.TextPart{Text: textContent})
-					}
-				} else {
-					var parts []json.RawMessage
-					if err := json.Unmarshal(subContent, &parts); err == nil {
-						for _, p := range parts {
-							cp, err := uni.UnmarshalContentPart(p)
-							if err == nil && cp != nil {
-								content = append(content, cp)
-							}
-						}
-					}
-				}
-			}
+		content, err := decodeToolResultContent(block)
+		if err != nil {
+			return nil, err
 		}
 		return uni.ToolResultPart{ToolCallID: block.ToolUseID, Content: content, IsError: block.IsError}, nil
 	case "thinking":
@@ -204,7 +221,7 @@ func convertClaudeBlockToUni(block contentBlock, report *adapter.Report) (uni.Co
 	}
 }
 
-func convertClaudeToolChoiceToUni(tc *toolChoice) uni.ToolChoice {
+func convertClaudeToolChoiceToUni(tc *toolChoice, report *adapter.Report) uni.ToolChoice {
 	switch tc.Type {
 	case "auto":
 		return uni.ToolChoice{Type: uni.ToolChoiceAuto}
@@ -215,6 +232,7 @@ func convertClaudeToolChoiceToUni(tc *toolChoice) uni.ToolChoice {
 	case "tool":
 		return uni.ToolChoice{Type: uni.ToolChoiceSpecific, ToolName: tc.Name}
 	default:
+		report.AddLostField("claude", "tool_choice.type", fmt.Sprintf("unknown tool_choice type %q, defaulting to auto", tc.Type))
 		return uni.ToolChoice{Type: uni.ToolChoiceAuto}
 	}
 }
@@ -373,19 +391,15 @@ func convertUniPartToClaude(part uni.ContentPart, report *adapter.Report) ([]con
 			Input: p.Arguments,
 		}}, nil
 	case uni.ToolResultPart:
-		var textParts []string
-		for _, c := range p.Content {
-			switch cp := c.(type) {
-			case uni.TextPart:
-				textParts = append(textParts, cp.Text)
-			}
+		content, err := encodeClaudeToolResultContent(p, report)
+		if err != nil {
+			return nil, err
 		}
-		text := strings.Join(textParts, "")
 		return []contentBlock{{
 			Type:      "tool_result",
 			ToolUseID: p.ToolCallID,
 			IsError:   p.IsError,
-			Content:   mustMarshalJSON(text),
+			Content:   content,
 		}}, nil
 	case uni.ThinkingPart:
 		return []contentBlock{{
@@ -427,7 +441,25 @@ func convertUniToolChoiceToClaude(tc *uni.ToolChoice) toolChoice {
 	}
 }
 
-func mustMarshalJSON(v any) json.RawMessage {
-	data, _ := json.Marshal(v)
-	return data
+func encodeClaudeToolResultContent(p uni.ToolResultPart, report *adapter.Report) (json.RawMessage, error) {
+	var textParts []string
+	for _, c := range p.Content {
+		switch cp := c.(type) {
+		case uni.TextPart:
+			textParts = append(textParts, cp.Text)
+		default:
+			report.AddLostField("unified", "tool_result.content",
+				fmt.Sprintf("non-text content type %s not supported in Claude tool results", c.ContentType()))
+		}
+	}
+	text := strings.Join(textParts, "")
+	return marshalJSON(text)
+}
+
+func marshalJSON(v any) (json.RawMessage, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JSON: %w", err)
+	}
+	return data, nil
 }

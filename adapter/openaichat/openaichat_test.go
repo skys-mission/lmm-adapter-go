@@ -554,3 +554,312 @@ func (e *checkError) Error() string {
 func errCheck(field, expected, got string) error {
 	return &checkError{field: field, expected: expected, got: got}
 }
+
+func TestEncodeRequest_ExtRestoration(t *testing.T) {
+	a := New()
+	ext := make(uni.ExtData)
+	ext.Set("n", int64(2))
+	ext.Set("user", "alice")
+	ext["stream_options"] = json.RawMessage(`{"include_usage":true}`)
+	ext["response_format"] = json.RawMessage(`{"type":"json_object"}`)
+
+	params := &uni.RequestParams{
+		Model:    "gpt-4o",
+		Messages: []uni.Message{uni.UserMessage(uni.TextPart{Text: "hi"})},
+		Ext:      ext,
+	}
+
+	data, _, err := a.EncodeRequest(params)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+
+	var req chatCompletionRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if req.N == nil || *req.N != 2 {
+		t.Fatalf("expected n=2, got %v", req.N)
+	}
+	if req.User != "alice" {
+		t.Fatalf("expected user=alice, got %s", req.User)
+	}
+	if req.StreamOptions == nil {
+		t.Fatal("expected stream_options restored")
+	}
+	if req.ResponseFormat == nil {
+		t.Fatal("expected response_format restored")
+	}
+}
+
+func TestEncodeMessage_MultimediaUser(t *testing.T) {
+	a := New()
+	params := &uni.RequestParams{
+		Model: "gpt-4o",
+		Messages: []uni.Message{
+			uni.UserMessage(
+				uni.TextPart{Text: "What is this?"},
+				uni.ImagePart{URL: "https://example.com/img.png", Detail: "high"},
+				uni.AudioPart{Data: "base64audio", Format: "mp3"},
+				uni.FilePart{Data: "base64file", Name: "notes.txt"},
+			),
+		},
+	}
+
+	data, _, err := a.EncodeRequest(params)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+
+	var req chatCompletionRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(req.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(req.Messages))
+	}
+
+	var parts []contentPart
+	if err := json.Unmarshal(req.Messages[0].Content, &parts); err != nil {
+		t.Fatalf("unmarshal content parts: %v", err)
+	}
+	if len(parts) != 4 {
+		t.Fatalf("expected 4 parts, got %d", len(parts))
+	}
+	if parts[1].Type != "image_url" || parts[1].ImageURL.URL != "https://example.com/img.png" {
+		t.Fatalf("unexpected image part: %+v", parts[1])
+	}
+	if parts[2].Type != "input_audio" {
+		t.Fatalf("expected input_audio, got %s", parts[2].Type)
+	}
+	if parts[3].Type != "file" {
+		t.Fatalf("expected file, got %s", parts[3].Type)
+	}
+}
+
+func TestEncodeMessage_ImageWithMediaType(t *testing.T) {
+	a := New()
+	params := &uni.RequestParams{
+		Model: "gpt-4o",
+		Messages: []uni.Message{
+			uni.UserMessage(uni.ImagePart{Data: "abc123", MediaType: "image/png"}),
+		},
+	}
+
+	data, _, err := a.EncodeRequest(params)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+
+	var req chatCompletionRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	var parts []contentPart
+	if err := json.Unmarshal(req.Messages[0].Content, &parts); err != nil {
+		t.Fatalf("unmarshal content parts: %v", err)
+	}
+	if parts[0].ImageURL.URL != "data:image/png;base64,abc123" {
+		t.Fatalf("expected data URI, got %s", parts[0].ImageURL.URL)
+	}
+}
+
+func TestEncodeMessage_AssistantWithToolAndRefusal(t *testing.T) {
+	a := New()
+	params := &uni.RequestParams{
+		Model: "gpt-4o",
+		Messages: []uni.Message{
+			uni.AssistantMessage(
+				uni.TextPart{Text: "ok"},
+				uni.ToolUsePart{ToolCallID: "call_1", ToolName: "search", Arguments: json.RawMessage(`{"q":"x"}`)},
+				uni.RefusalPart{Refusal: "I can't"},
+			),
+		},
+	}
+
+	data, _, err := a.EncodeRequest(params)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+
+	var req chatCompletionRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(req.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(req.Messages))
+	}
+	if req.Messages[0].Role != "assistant" {
+		t.Fatalf("expected assistant, got %s", req.Messages[0].Role)
+	}
+	if len(req.Messages[0].ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(req.Messages[0].ToolCalls))
+	}
+	if req.Messages[0].Refusal != "I can't" {
+		t.Fatalf("expected refusal, got %s", req.Messages[0].Refusal)
+	}
+}
+
+func TestEncodeMessage_ToolRoleNonTextLost(t *testing.T) {
+	a := New()
+	params := &uni.RequestParams{
+		Model: "gpt-4o",
+		Messages: []uni.Message{
+			uni.Message{
+				Role: uni.RoleTool,
+				Content: []uni.ContentPart{
+					uni.ToolResultPart{ToolCallID: "call_1", Content: []uni.ContentPart{
+						uni.TextPart{Text: "ok"},
+						uni.ImagePart{URL: "https://example.com/img.png"},
+					}},
+				},
+			},
+		},
+	}
+
+	_, report, err := a.EncodeRequest(params)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+
+	found := false
+	for _, lf := range report.LostFields {
+		if lf.Field == "tool_result.content" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected tool_result.content in lost fields")
+	}
+}
+
+func TestEncodeToolChoice_Branches(t *testing.T) {
+	a := New()
+
+	cases := []struct {
+		name     string
+		choice   uni.ToolChoice
+		expected string
+	}{
+		{"auto", uni.ToolChoice{Type: uni.ToolChoiceAuto}, `"auto"`},
+		{"required", uni.ToolChoice{Type: uni.ToolChoiceRequired}, `"required"`},
+		{"none", uni.ToolChoice{Type: uni.ToolChoiceNone}, `"none"`},
+		{"specific", uni.ToolChoice{Type: uni.ToolChoiceSpecific, ToolName: "foo"}, `{"function":{"name":"foo"},"type":"function"}`},
+		{"default", uni.ToolChoice{Type: uni.ToolChoiceType("weird")}, `"auto"`},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			params := &uni.RequestParams{
+				Model:      "gpt-4o",
+				ToolChoice: &c.choice,
+				Messages:   []uni.Message{uni.UserMessage(uni.TextPart{Text: "hi"})},
+			}
+			data, _, err := a.EncodeRequest(params)
+			if err != nil {
+				t.Fatalf("EncodeRequest failed: %v", err)
+			}
+			var req chatCompletionRequest
+			if err := json.Unmarshal(data, &req); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			// Normalize by round-tripping through json.Unmarshal to compare ignoring key order.
+			var got map[string]any
+			var want map[string]any
+			if err := json.Unmarshal(req.ToolChoice, &got); err == nil {
+				_ = json.Unmarshal([]byte(c.expected), &want)
+				// Compare as re-marshaled strings.
+				gotBytes, _ := json.Marshal(got)
+				wantBytes, _ := json.Marshal(want)
+				if string(gotBytes) != string(wantBytes) {
+					t.Fatalf("expected %s, got %s", wantBytes, gotBytes)
+				}
+				return
+			}
+			var gotStr string
+			if err := json.Unmarshal(req.ToolChoice, &gotStr); err != nil {
+				t.Fatalf("tool_choice not string or object: %s", string(req.ToolChoice))
+			}
+			var wantStr string
+			json.Unmarshal([]byte(c.expected), &wantStr)
+			if gotStr != wantStr {
+				t.Fatalf("expected %s, got %s", wantStr, gotStr)
+			}
+		})
+	}
+}
+
+func TestDecodeContentPart_UnknownType(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{
+		"model": "gpt-4o",
+		"messages": [{"role": "user", "content": [{"type": "weird", "text": "fallback"}]}]
+	}`)
+
+	params, report, err := a.DecodeRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	tp, ok := params.Messages[0].Content[0].(uni.TextPart)
+	if !ok || tp.Text != "fallback" {
+		t.Fatalf("expected fallback TextPart, got %+v", params.Messages[0].Content[0])
+	}
+
+	found := false
+	for _, lf := range report.LostFields {
+		if lf.Field == "content_part.type" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected content_part.type in lost fields")
+	}
+}
+
+func TestDecodeRequest_StopAsString(t *testing.T) {
+	a := New()
+	data := json.RawMessage(`{
+		"model": "gpt-4o",
+		"messages": [{"role": "user", "content": "hi"}],
+		"stop": "halt"
+	}`)
+
+	params, _, err := a.DecodeRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	if len(params.StopSequences) != 1 || params.StopSequences[0] != "halt" {
+		t.Fatalf("expected stop=[halt], got %v", params.StopSequences)
+	}
+}
+
+func TestEncodeRequest_StopSequences(t *testing.T) {
+	a := New()
+	params := &uni.RequestParams{
+		Model:         "gpt-4o",
+		StopSequences: []string{"halt", "stop"},
+		Messages:      []uni.Message{uni.UserMessage(uni.TextPart{Text: "hi"})},
+	}
+
+	data, _, err := a.EncodeRequest(params)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed: %v", err)
+	}
+
+	var req chatCompletionRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var stops []string
+	if err := json.Unmarshal(req.Stop, &stops); err != nil {
+		t.Fatalf("unmarshal stop: %v", err)
+	}
+	if len(stops) != 2 || stops[0] != "halt" || stops[1] != "stop" {
+		t.Fatalf("unexpected stop: %v", stops)
+	}
+}

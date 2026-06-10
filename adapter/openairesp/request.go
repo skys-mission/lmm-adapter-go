@@ -68,7 +68,7 @@ func decodeRequest(data json.RawMessage) (*uni.RequestParams, *adapter.Report, e
 	}
 
 	if req.ToolChoice != nil {
-		tc, err := decodeToolChoice(req.ToolChoice)
+		tc, err := decodeToolChoice(req.ToolChoice, report)
 		if err != nil {
 			return nil, report, fmt.Errorf("decode tool_choice: %w", err)
 		}
@@ -230,7 +230,7 @@ func decodeTools(tools []toolDef, report *adapter.Report) []uni.Tool {
 	return result
 }
 
-func decodeToolChoice(raw json.RawMessage) (*uni.ToolChoice, error) {
+func decodeToolChoice(raw json.RawMessage, report *adapter.Report) (*uni.ToolChoice, error) {
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		switch s {
@@ -241,6 +241,7 @@ func decodeToolChoice(raw json.RawMessage) (*uni.ToolChoice, error) {
 		case "none":
 			return &uni.ToolChoice{Type: uni.ToolChoiceNone}, nil
 		}
+		report.AddLostField("openai_responses", "tool_choice", fmt.Sprintf("unknown tool_choice string %q, defaulting to auto", s))
 		return &uni.ToolChoice{Type: uni.ToolChoiceAuto}, nil
 	}
 
@@ -299,30 +300,43 @@ func encodeRequest(params *uni.RequestParams) (json.RawMessage, *adapter.Report,
 
 	if params.Ext != nil && params.Ext.Has("openai_responses") {
 		var ext map[string]json.RawMessage
-		if err := params.Ext.Get("openai_responses", &ext); err == nil {
-			if v, ok := ext["previous_response_id"]; ok {
-				json.Unmarshal(v, &req.PreviousResponseID)
+		if err := params.Ext.Get("openai_responses", &ext); err != nil {
+			return nil, report, fmt.Errorf("get openai_responses ext: %w", err)
+		}
+		if v, ok := ext["previous_response_id"]; ok {
+			if err := json.Unmarshal(v, &req.PreviousResponseID); err != nil {
+				return nil, report, fmt.Errorf("restore previous_response_id: %w", err)
 			}
-			if v, ok := ext["store"]; ok {
-				json.Unmarshal(v, &req.Store)
+		}
+		if v, ok := ext["store"]; ok {
+			if err := json.Unmarshal(v, &req.Store); err != nil {
+				return nil, report, fmt.Errorf("restore store: %w", err)
 			}
-			if v, ok := ext["reasoning"]; ok {
-				req.Reasoning = v
+		}
+		if v, ok := ext["reasoning"]; ok {
+			req.Reasoning = v
+		}
+		if v, ok := ext["metadata"]; ok {
+			req.Metadata = v
+		}
+		if v, ok := ext["truncation"]; ok {
+			if err := json.Unmarshal(v, &req.Truncation); err != nil {
+				return nil, report, fmt.Errorf("restore truncation: %w", err)
 			}
-			if v, ok := ext["metadata"]; ok {
-				req.Metadata = v
+		}
+		if v, ok := ext["service_tier"]; ok {
+			if err := json.Unmarshal(v, &req.ServiceTier); err != nil {
+				return nil, report, fmt.Errorf("restore service_tier: %w", err)
 			}
-			if v, ok := ext["truncation"]; ok {
-				json.Unmarshal(v, &req.Truncation)
+		}
+		if v, ok := ext["background"]; ok {
+			if err := json.Unmarshal(v, &req.Background); err != nil {
+				return nil, report, fmt.Errorf("restore background: %w", err)
 			}
-			if v, ok := ext["service_tier"]; ok {
-				json.Unmarshal(v, &req.ServiceTier)
-			}
-			if v, ok := ext["background"]; ok {
-				json.Unmarshal(v, &req.Background)
-			}
-			if v, ok := ext["max_tool_calls"]; ok {
-				json.Unmarshal(v, &req.MaxToolCalls)
+		}
+		if v, ok := ext["max_tool_calls"]; ok {
+			if err := json.Unmarshal(v, &req.MaxToolCalls); err != nil {
+				return nil, report, fmt.Errorf("restore max_tool_calls: %w", err)
 			}
 		}
 	}

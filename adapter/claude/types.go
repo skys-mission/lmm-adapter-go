@@ -103,4 +103,6 @@ type contentBlockDelta struct {
 	PartialJSON  string `json:"partial_json,omitempty"`
 	Thinking     string `json:"thinking,omitempty"`
 	Signature    string `json:"signature,omitempty"`
+	StopReason   string `json:"stop_reason,omitempty"`
+	StopSequence string `json:"stop_sequence,omitempty"`
 }

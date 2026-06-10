@@ -143,12 +143,24 @@ func decodeContentBlockStop(event claudeStreamEvent) (*uni.StreamEvent, *adapter
 
 func decodeMessageDelta(event claudeStreamEvent, report *adapter.Report) (*uni.StreamEvent, *adapter.Report, error) {
 	se := &uni.StreamEvent{
-		Type:         uni.StreamEventStop,
-		StopSequence: event.StopSequence,
+		Type: uni.StreamEventStop,
 	}
 
-	if event.StopReason != "" {
-		reason := convertClaudeStopReason(event.StopReason)
+	// stop_reason and stop_sequence may be at the top level or nested inside delta.
+	stopReason := event.StopReason
+	stopSequence := event.StopSequence
+	if event.Delta != nil {
+		if stopReason == "" {
+			stopReason = event.Delta.StopReason
+		}
+		if stopSequence == "" {
+			stopSequence = event.Delta.StopSequence
+		}
+	}
+	se.StopSequence = stopSequence
+
+	if stopReason != "" {
+		reason := convertClaudeStopReason(stopReason)
 		se.StopReason = &reason
 	}
 
